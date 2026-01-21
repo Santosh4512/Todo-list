@@ -10,10 +10,13 @@ services:
       - key: PORT
         value: 3001
 
-  - type: static
+  - type: web
     name: todo-frontend
-    staticPublicPath: frontend/build
+    runtime: node
     buildCommand: cd frontend && npm install && npm run build
+    startCommand: npx serve -s frontend/build -l 3000
     envVars:
+      - key: NODE_ENV
+        value: production
       - key: REACT_APP_API_URL
         value: ${BACKEND_URL}
