@@ -1,7 +1,9 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const authRoutes = require('./routes/auth');
 const todoRoutes = require('./routes/todos');
+const { connectRedis } = require('./redisClient');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -19,6 +21,8 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'OK', message: 'Server is running' });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
+    // Initiate redis connection in the background
+    await connectRedis();
     console.log(`Server running on port ${PORT}`);
 });

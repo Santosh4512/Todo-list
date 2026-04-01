@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { GoogleLogin } from '@react-oauth/google';
 
 const API_URL = 'http://localhost:5001/api';
 
@@ -68,6 +69,30 @@ function App() {
             }
         } catch (err) {
             setAuthError('Network error. Please try again.');
+        }
+        setAuthLoading(false);
+    };
+
+    const handleGoogleSuccess = async (credentialResponse) => {
+        setAuthLoading(true);
+        setAuthError('');
+        try {
+            const res = await fetch(`${API_URL}/auth/google`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: credentialResponse.credential })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('user', JSON.stringify(data.user));
+                setToken(data.token);
+                setUser(data.user);
+            } else {
+                setAuthError(data.error || 'Google authentication failed');
+            }
+        } catch (err) {
+            setAuthError('Network error with Google sign-in.');
         }
         setAuthLoading(false);
     };
@@ -186,6 +211,15 @@ function App() {
                             {authLoading ? 'Please wait...' : (isLogin ? 'Sign In' : 'Create Account')}
                         </button>
                     </form>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '20px' }}>
+                        <div style={{ marginBottom: '15px', color: '#666', fontSize: '0.9rem', fontWeight: 'bold' }}>OR</div>
+                        <GoogleLogin
+                            onSuccess={handleGoogleSuccess}
+                            onError={() => setAuthError('Google Login failed')}
+                            useOneTap
+                        />
+                    </div>
 
                     <div className="auth-switch">
                         {isLogin ? "Don't have an account? " : "Already have an account? "}
