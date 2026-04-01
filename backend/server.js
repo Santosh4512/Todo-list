@@ -21,6 +21,11 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'OK', message: 'Server is running' });
 });
 
+// Root check
+app.get('/', (req, res) => {
+    res.send('Todo API is up and running! Access /api/health for status.');
+});
+
 app.listen(PORT, async () => {
     // Initiate redis connection in the background
     await connectRedis();
