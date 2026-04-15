@@ -124,6 +124,13 @@ body {
   text-decoration: underline;
 }
 
+.auth-subtitle {
+  margin: 0 0 18px;
+  font-size: 1.1rem;
+  color: #4b5563;
+  text-align: center;
+}
+
 .error-message {
   background: #fee2e2;
   color: #dc2626;
@@ -132,6 +139,70 @@ body {
   font-size: 14px;
   margin-bottom: 20px;
   text-align: center;
+}
+
+.mfa-setup-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 22px;
+  margin-top: 20px;
+}
+
+.mfa-setup-box h2 {
+  font-size: 18px;
+  margin-bottom: 12px;
+  color: #111827;
+}
+
+.mfa-setup-box p {
+  font-size: 14px;
+  color: #374151;
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+
+.qr-code-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.qr-code-wrapper img {
+  width: 220px;
+  height: 220px;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  background: white;
+}
+
+.mfa-secret-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.mfa-secret-value {
+  word-break: break-all;
+  font-weight: 700;
+  color: #111827;
+}
+
+.btn-copy {
+  padding: 10px 14px;
+  border: none;
+  border-radius: 12px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-copy:hover {
+  background: #bfdbfe;
 }
 
 /* Todo App */

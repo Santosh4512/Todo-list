@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
+import QRCode from 'qrcode';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
 
 function App() {
-    const [token, setToken] = useState(localStorage.getItem('token'));
+    const [token, setToken] = useState(sessionStorage.getItem('token'));
     const [user, setUser] = useState(JSON.parse(localStorage.getItem('user') || 'null'));
     const [todos, setTodos] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -15,6 +16,11 @@ function App() {
     const [authForm, setAuthForm] = useState({ username: '', email: '', password: '' });
     const [authError, setAuthError] = useState('');
     const [authLoading, setAuthLoading] = useState(false);
+    const [mfaRequired, setMfaRequired] = useState(false);
+    const [mfaTempToken, setMfaTempToken] = useState('');
+    const [mfaCode, setMfaCode] = useState('');
+    const [mfaSetup, setMfaSetup] = useState(null);
+    const [mfaQrUrl, setMfaQrUrl] = useState('');
 
     // Fetch todos when logged in
     useEffect(() => {
@@ -22,6 +28,19 @@ function App() {
             fetchTodos();
         }
     }, [token]);
+
+    useEffect(() => {
+        if (mfaSetup?.otpauthUrl) {
+            QRCode.toDataURL(mfaSetup.otpauthUrl)
+                .then(setMfaQrUrl)
+                .catch((err) => {
+                    console.error('Failed to generate MFA QR code', err);
+                    setMfaQrUrl('');
+                });
+        } else {
+            setMfaQrUrl('');
+        }
+    }, [mfaSetup]);
 
     const fetchTodos = async () => {
         setLoading(true);
@@ -39,8 +58,16 @@ function App() {
         setLoading(false);
     };
 
-    const handleAuth = async (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
+        if (mfaRequired) {
+            await handleMfaSubmit();
+        } else {
+            await handleAuth();
+        }
+    };
+
+    const handleAuth = async () => {
         setAuthError('');
         setAuthLoading(true);
 
@@ -59,17 +86,65 @@ function App() {
             const data = await res.json();
 
             if (res.ok) {
-                localStorage.setItem('token', data.token);
-                localStorage.setItem('user', JSON.stringify(data.user));
-                setToken(data.token);
-                setUser(data.user);
-                setAuthForm({ username: '', email: '', password: '' });
+                if (data.mfaRequired) {
+                    setMfaRequired(true);
+                    setMfaTempToken(data.tempToken);
+                    setMfaSetup(data.mfaSetup || null);
+                    setAuthError('Enter the code from your authenticator app to complete login.');
+                } else {
+                    sessionStorage.setItem('token', data.token);
+                    localStorage.setItem('user', JSON.stringify(data.user));
+                    setToken(data.token);
+                    setUser(data.user);
+                    setAuthForm({ username: '', email: '', password: '' });
+                    setMfaRequired(false);
+                    setMfaTempToken('');
+                    setMfaCode('');
+                    setMfaSetup(data.mfaSetup || null);
+                }
             } else {
                 setAuthError(data.error || 'Authentication failed');
             }
         } catch (err) {
-            setAuthError('Network error. Please try again.');
+            setAuthError(err?.message || 'Network error. Please try again.');
         }
+        setAuthLoading(false);
+    };
+
+    const handleMfaSubmit = async () => {
+        if (!mfaTempToken || !mfaCode.trim()) {
+            setAuthError('Please enter your MFA code.');
+            return;
+        }
+
+        setAuthLoading(true);
+        setAuthError('');
+
+        try {
+            const res = await fetch(`${API_URL}/auth/mfa/verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: mfaTempToken, code: mfaCode.trim() })
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+                sessionStorage.setItem('token', data.token);
+                localStorage.setItem('user', JSON.stringify(data.user));
+                setToken(data.token);
+                setUser(data.user);
+                setAuthForm({ username: '', email: '', password: '' });
+                setMfaRequired(false);
+                setMfaTempToken('');
+                setMfaCode('');
+                setMfaSetup(null);
+            } else {
+                setAuthError(data.error || 'MFA verification failed');
+            }
+        } catch (err) {
+            setAuthError(err?.message || 'Network error. Please try again.');
+        }
+
         setAuthLoading(false);
     };
 
@@ -84,25 +159,38 @@ function App() {
             });
             const data = await res.json();
             if (res.ok) {
-                localStorage.setItem('token', data.token);
-                localStorage.setItem('user', JSON.stringify(data.user));
-                setToken(data.token);
-                setUser(data.user);
+                if (data.mfaRequired) {
+                    setMfaRequired(true);
+                    setMfaTempToken(data.tempToken);
+                    setMfaSetup(data.mfaSetup || null);
+                    setAuthError('Enter the code from your authenticator app to complete login.');
+                } else {
+                    sessionStorage.setItem('token', data.token);
+                    localStorage.setItem('user', JSON.stringify(data.user));
+                    setToken(data.token);
+                    setUser(data.user);
+                }
             } else {
                 setAuthError(data.error || 'Google authentication failed');
             }
         } catch (err) {
-            setAuthError('Network error with Google sign-in.');
+            setAuthError(err?.message || 'Network error with Google sign-in.');
         }
         setAuthLoading(false);
     };
 
     const handleLogout = () => {
-        localStorage.removeItem('token');
+        sessionStorage.removeItem('token');
         localStorage.removeItem('user');
         setToken(null);
         setUser(null);
         setTodos([]);
+        setMfaRequired(false);
+        setMfaTempToken('');
+        setMfaCode('');
+        setMfaSetup(null);
+        setMfaQrUrl('');
+        setAuthForm({ username: '', email: '', password: '' });
     };
 
     const addTodo = async (e) => {
@@ -168,10 +256,8 @@ function App() {
                     <h1 className="auth-title">
                         <span>Todo</span> App
                     </h1>
-
-                    {authError && <div className="error-message">{authError}</div>}
-
-                    <form onSubmit={handleAuth}>
+                    <h2 className="auth-subtitle">{isLogin ? 'Sign In' : 'Create Account'}</h2>
+                    <form onSubmit={handleSubmit}>
                         {!isLogin && (
                             <div className="form-group">
                                 <label>Username</label>
@@ -207,10 +293,70 @@ function App() {
                             />
                         </div>
 
+                        {mfaRequired && (
+                            <div className="form-group">
+                                <label>MFA Code</label>
+                                <input
+                                    type="text"
+                                    value={mfaCode}
+                                    onChange={(e) => setMfaCode(e.target.value)}
+                                    placeholder="Enter authenticator code"
+                                    required
+                                />
+                            </div>
+                        )}
+
                         <button type="submit" className="btn btn-primary" disabled={authLoading}>
-                            {authLoading ? 'Please wait...' : (isLogin ? 'Sign In' : 'Create Account')}
+                            {authLoading ? 'Please wait...' : mfaRequired ? 'Verify MFA Code' : (isLogin ? 'Sign In' : 'Create Account')}
                         </button>
                     </form>
+
+                    {(mfaRequired || mfaSetup) && (
+                        <div className="mfa-setup-box">
+                            <h2>MFA Setup</h2>
+                            {mfaSetup?.secret ? (
+                                <>
+                                    <p>{mfaSetup.message || 'Scan the QR code or copy the secret into your authenticator app.'}</p>
+                                    {mfaQrUrl && (
+                                        <div className="qr-code-wrapper">
+                                            <img src={mfaQrUrl} alt="MFA QR Code" />
+                                        </div>
+                                    )}
+                                    <div className="mfa-secret-row">
+                                        <div>
+                                            <p><strong>Secret:</strong></p>
+                                            <p className="mfa-secret-value">{mfaSetup.secret}</p>
+                                        </div>
+                                        <button
+                                            className="btn btn-copy"
+                                            type="button"
+                                            onClick={async () => {
+                                                try {
+                                                    await navigator.clipboard.writeText(mfaSetup.secret);
+                                                    setAuthError('Secret copied to clipboard');
+                                                    setTimeout(() => setAuthError(''), 2500);
+                                                } catch (error) {
+                                                    setAuthError('Copy failed. Please copy manually.');
+                                                }
+                                            }}
+                                        >
+                                            Copy Secret
+                                        </button>
+                                    </div>
+                                    {mfaSetup.otpauthUrl && (
+                                        <p><a href={mfaSetup.otpauthUrl} target="_blank" rel="noreferrer">Open authenticator setup</a></p>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <p>{mfaSetup?.message || 'This account already has MFA enabled. Enter the code from your authenticator app.'}</p>
+                                    {mfaSetup?.otpauthUrl && (
+                                        <p><a href={mfaSetup.otpauthUrl} target="_blank" rel="noreferrer">Open authenticator setup</a></p>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )}
 
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '20px' }}>
                         <div style={{ marginBottom: '15px', color: '#666', fontSize: '0.9rem', fontWeight: 'bold' }}>OR</div>
@@ -223,7 +369,15 @@ function App() {
 
                     <div className="auth-switch">
                         {isLogin ? "Don't have an account? " : "Already have an account? "}
-                        <button onClick={() => { setIsLogin(!isLogin); setAuthError(''); }}>
+                        <button onClick={() => {
+                            setIsLogin(!isLogin);
+                            setAuthError('');
+                            setMfaRequired(false);
+                            setMfaTempToken('');
+                            setMfaCode('');
+                            setMfaSetup(null);
+                            setMfaQrUrl('');
+                        }}>
                             {isLogin ? 'Sign Up' : 'Sign In'}
                         </button>
                     </div>
