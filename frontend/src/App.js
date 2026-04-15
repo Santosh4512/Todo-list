@@ -257,6 +257,7 @@ function App() {
                         <span>Todo</span> App
                     </h1>
                     <h2 className="auth-subtitle">{isLogin ? 'Sign In' : 'Create Account'}</h2>
+                    {authError && <div className="error-message">{authError}</div>}
                     <form onSubmit={handleSubmit}>
                         {!isLogin && (
                             <div className="form-group">
