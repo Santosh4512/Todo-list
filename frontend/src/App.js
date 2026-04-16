@@ -225,9 +225,16 @@ function App() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
             });
-            const orderData = await orderRes.json();
+            const orderText = await orderRes.text();
+            let orderData;
+            try {
+                orderData = JSON.parse(orderText);
+            } catch (parseError) {
+                orderData = { error: orderText || 'Unable to parse payment order response' };
+            }
             if (!orderRes.ok) {
-                setPaymentError(orderData.error || 'Unable to create payment order.');
+                console.error('Create order failed', orderRes.status, orderData);
+                setPaymentError(orderData.error || `Unable to create payment order (${orderRes.status})`);
                 return;
             }
 
