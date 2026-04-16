@@ -20,15 +20,15 @@ router.get('/', authenticateToken, (req, res) => {
 
 // Create todo
 router.post('/', authenticateToken, (req, res) => {
-    const { title, description } = req.body;
+    const { title, description, due_date, priority } = req.body;
 
     if (!title) {
         return res.status(400).json({ error: 'Title is required' });
     }
 
     db.run(
-        'INSERT INTO todos (user_id, title, description) VALUES (?, ?, ?)',
-        [req.user.id, title, description || ''],
+        'INSERT INTO todos (user_id, title, description, due_date, priority) VALUES (?, ?, ?, ?, ?)',
+        [req.user.id, title, description || '', due_date || null, priority || 'Medium'],
         function (err) {
             if (err) {
                 return res.status(500).json({ error: 'Database error' });
@@ -38,6 +38,8 @@ router.post('/', authenticateToken, (req, res) => {
                 user_id: req.user.id,
                 title,
                 description: description || '',
+                due_date: due_date || null,
+                priority: priority || 'Medium',
                 completed: 0
             });
         }
@@ -46,12 +48,12 @@ router.post('/', authenticateToken, (req, res) => {
 
 // Update todo
 router.put('/:id', authenticateToken, (req, res) => {
-    const { title, description, completed } = req.body;
+    const { title, description, completed, due_date, priority } = req.body;
     const { id } = req.params;
 
     db.run(
-        'UPDATE todos SET title = ?, description = ?, completed = ? WHERE id = ? AND user_id = ?',
-        [title, description, completed ? 1 : 0, id, req.user.id],
+        'UPDATE todos SET title = ?, description = ?, completed = ?, due_date = ?, priority = ? WHERE id = ? AND user_id = ?',
+        [title, description, completed ? 1 : 0, due_date || null, priority || 'Medium', id, req.user.id],
         function (err) {
             if (err) {
                 return res.status(500).json({ error: 'Database error' });
@@ -59,7 +61,7 @@ router.put('/:id', authenticateToken, (req, res) => {
             if (this.changes === 0) {
                 return res.status(404).json({ error: 'Todo not found' });
             }
-            res.json({ id: parseInt(id), title, description, completed: completed ? 1 : 0 });
+            res.json({ id: parseInt(id), title, description, due_date: due_date || null, priority: priority || 'Medium', completed: completed ? 1 : 0 });
         }
     );
 });

@@ -36,8 +36,8 @@ router.post('/register', async (req, res) => {
         const encryptedSecret = encryptText(otpSecret);
 
         db.run(
-            'INSERT INTO users (username, email, password, mfa_enabled, otp_secret) VALUES (?, ?, ?, ?, ?)',
-            [username, email, hashedPassword, 1, encryptedSecret],
+            'INSERT INTO users (username, email, password, mfa_enabled, otp_secret, subscription_status) VALUES (?, ?, ?, ?, ?, ?)',
+            [username, email, hashedPassword, 1, encryptedSecret, 'free'],
             function (err) {
                 if (err) {
                     if (err.message.includes('UNIQUE constraint failed')) {
@@ -53,7 +53,7 @@ router.post('/register', async (req, res) => {
                     message: 'MFA setup required',
                     mfaRequired: true,
                     tempToken,
-                    user: { id: this.lastID, username, email, mfaEnabled: true },
+                    user: { id: this.lastID, username, email, mfaEnabled: true, subscriptionStatus: 'free' },
                     mfaSetup: {
                         secret: otpSecret,
                         otpauthUrl,
@@ -104,7 +104,7 @@ router.post('/login', async (req, res) => {
             res.json({
                 message: 'Login successful',
                 token,
-                user: { id: user.id, username: user.username, email: user.email, mfaEnabled: false }
+                user: { id: user.id, username: user.username, email: user.email, mfaEnabled: false, subscriptionStatus: user.subscription_status || 'free' }
             });
         });
     } catch (error) {
@@ -131,35 +131,88 @@ router.post('/google', async (req, res) => {
             if (err) return res.status(500).json({ error: 'Database error' });
 
                 if (user) {
-                const appToken = generateToken({ id: user.id, username: user.username }, '24h');
-                return res.json({
-                    message: 'Login successful',
-                    token: appToken,
-                    user: { id: user.id, username: user.username, email: user.email, mfaEnabled: false }
-                });
-            } else {
-                const randomPassword = crypto.randomUUID();
-                const hashedPassword = await bcrypt.hash(randomPassword, 10);
-                db.run(
-                    'INSERT INTO users (username, email, password, mfa_enabled, otp_secret) VALUES (?, ?, ?, ?, ?)',
-                    [name, email, hashedPassword, 0, null],
-                    function (err) {
-                        if (err) {
-                            return res.status(500).json({ error: 'Failed to create user account' });
+                    const appToken = generateToken({ id: user.id, username: user.username }, '24h');
+                    return res.json({
+                        message: 'Login successful',
+                        token: appToken,
+                        user: { id: user.id, username: user.username, email: user.email, mfaEnabled: false, subscriptionStatus: user.subscription_status || 'free' }
+                    });
+                } else {
+                    const randomPassword = crypto.randomUUID();
+                    const hashedPassword = await bcrypt.hash(randomPassword, 10);
+                    db.run(
+                        'INSERT INTO users (username, email, password, mfa_enabled, otp_secret, subscription_status) VALUES (?, ?, ?, ?, ?, ?)',
+                        [name, email, hashedPassword, 0, null, 'free'],
+                        function (err) {
+                            if (err) {
+                                return res.status(500).json({ error: 'Failed to create user account' });
+                            }
+                            const appToken = generateToken({ id: this.lastID, username: name }, '24h');
+                            res.status(201).json({
+                                message: 'Login successful',
+                                token: appToken,
+                                user: { id: this.lastID, username: name, email, mfaEnabled: false, subscriptionStatus: 'free' }
+                            });
                         }
-                        const appToken = generateToken({ id: this.lastID, username: name }, '24h');
-                        res.status(201).json({
-                            message: 'Login successful',
-                            token: appToken,
-                            user: { id: this.lastID, username: name, email, mfaEnabled: false }
-                        });
-                    }
-                );
-            }
+                    );
+                }
         });
     } catch (error) {
         console.error('Google Auth Error:', error);
         res.status(401).json({ error: 'Invalid Google Token' });
+    }
+});
+
+// Forgot password
+router.post('/forgot-password', async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ error: 'Email is required' });
+
+        db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
+            if (err) return res.status(500).json({ error: 'Database error' });
+            if (!user) return res.status(404).json({ error: 'User not found' });
+
+            const resetToken = crypto.randomBytes(20).toString('hex');
+            const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+            db.run('UPDATE users SET reset_token = ?, reset_token_expires_at = ? WHERE id = ?', [resetToken, expiresAt, user.id], function (updateErr) {
+                if (updateErr) return res.status(500).json({ error: 'Failed to save reset token' });
+
+                // In a real app, send this token by email. For demo, return it in response.
+                res.json({ message: 'Password reset token generated', resetToken });
+            });
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+router.post('/reset-password', async (req, res) => {
+    try {
+        const { email, token, newPassword } = req.body;
+        if (!email || !token || !newPassword) {
+            return res.status(400).json({ error: 'Email, token, and new password are required' });
+        }
+
+        db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
+            if (err) return res.status(500).json({ error: 'Database error' });
+            if (!user || !user.reset_token || !user.reset_token_expires_at) {
+                return res.status(400).json({ error: 'Invalid or expired reset token' });
+            }
+
+            if (user.reset_token !== token || new Date(user.reset_token_expires_at) < new Date()) {
+                return res.status(400).json({ error: 'Invalid or expired reset token' });
+            }
+
+            const hashedPassword = await bcrypt.hash(newPassword, 10);
+            db.run('UPDATE users SET password = ?, reset_token = NULL, reset_token_expires_at = NULL WHERE id = ?', [hashedPassword, user.id], function (updateErr) {
+                if (updateErr) return res.status(500).json({ error: 'Failed to reset password' });
+                res.json({ message: 'Password reset successful. Please sign in with your new password.' });
+            });
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
